@@ -1,0 +1,12 @@
+body { margin: 0; font-family: system-ui, Arial, sans-serif; }
+#topbar { height: 72px; background: #f1f2f4; border-bottom: 1px solid #ddd; display:flex; flex-direction:column; }
+#nav { padding: 8px; display:flex; gap:8px; align-items:center; }
+#address { flex:1; padding:8px; border-radius:6px; border:1px solid #ccc; }
+#tabs { display:flex; gap:6px; padding:8px; overflow:auto; }
+.tab { padding:6px 10px; background:#fff; border:1px solid #ccc; border-radius:6px; cursor:pointer; min-width:140px; display:flex; justify-content:space-between; align-items:center; }
+.tab.active { background:#0b63ff; color:white; border-color:#0554c9; }
+#modals { position: fixed; left:0; right:0; top:72px; bottom:0; pointer-events:none; }
+.modal { pointer-events:auto; position: absolute; left:50%; top:120px; transform: translateX(-50%); background:white; border:1px solid #ccc; padding:16px; border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); width:420px; z-index:9999; }
+.modal h4 { margin:0 0 8px 0; font-size:14px; }
+.modal .buttons { display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+button { font-size:13px; padding:6px 8px; }
