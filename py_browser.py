@@ -1,26 +1,27 @@
 """
-AdvancedPyBrowser.py
-A fully upgraded Python PySide6 Chromium-based browser
+advanced_py_browser.py
+A full-featured Chrome-style browser using PySide6
 Features:
- - Persistent bookmarks & history (JSON)
+ - Persistent bookmarks & history
  - Tabs with proper cleanup
- - Custom animated HTML-like modals for alert/confirm/prompt
- - Permission pop-ups with "Remember" option
- - Tab favicons and thumbnails
+ - Custom HTML-like modals
+ - Permission pop-ups with Remember option
+ - Tab favicons and live tab thumbnails
+ - Animated tab previews on hover
+ - Bookmarks/history sidebar panel
+ - Downloads handling
  - DevTools support
 Requirements:
  pip install PySide6
 Run:
- python AdvancedPyBrowser.py
+ python advanced_py_browser.py
 """
-import sys, os, json
-from PySide6.QtCore import Qt, QTimer, QUrl, QObject, Signal
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QLineEdit, QPushButton, QLabel, QListWidget, QFileDialog
-)
+import sys, os, json, functools
+from PySide6.QtCore import Qt, QUrl, QTimer, QObject, Signal, QSize, QEvent
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                               QTabWidget, QLineEdit, QPushButton, QLabel, QListWidget, QFileDialog, QSplitter)
 from PySide6.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineDownloadItem
-from PySide6.QtGui import QIcon, QPixmap, QColor, QPainter
+from PySide6.QtGui import QIcon, QPixmap, QPainter
 
 # --- Persistence files ---
 BOOKMARK_FILE = "bookmarks.json"
@@ -35,7 +36,6 @@ def load_json(path):
 def save_json(path, data):
     with open(path,"w") as f: json.dump(data,f,indent=2)
 
-# Load persistent data
 bookmarks = load_json(BOOKMARK_FILE)
 history = load_json(HISTORY_FILE)
 permissions = load_json(PERMISSIONS_FILE)
@@ -104,7 +104,8 @@ class BrowserTab(QWidget):
     js_dialog = Signal(dict)
     request_permission = Signal(str,str)
     download_started = Signal(dict)
-
+    icon_changed = Signal(QIcon)
+    
     def __init__(self, profile=None, url="https://example.com"):
         super().__init__()
         self.view = QWebEngineView()
@@ -119,7 +120,7 @@ class BrowserTab(QWidget):
         # signals
         self.view.titleChanged.connect(self.title_changed.emit)
         self.view.urlChanged.connect(lambda q:self.url_changed.emit(q.toString()))
-        self.view.iconChanged.connect(lambda icon:self._on_icon_changed(icon))
+        self.view.iconChanged.connect(lambda icon:self.icon_changed.emit(icon))
         # permissions
         if hasattr(self.view.page(), "featurePermissionRequested"):
             self.view.page().featurePermissionRequested.connect(self._on_feature_request)
@@ -160,37 +161,46 @@ class BrowserTab(QWidget):
         item.setPath(path); item.accept()
         self.download_started.emit({"url":item.url().toString(),"path":path})
 
-    def _on_icon_changed(self, icon):
-        pass # handled in main window
-
 # --- Main Window ---
 class BrowserMain(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AdvancedPyBrowser")
-        self.resize(1200,800)
+        self.resize(1400,900)
         self.profile = QWebEngineProfile.defaultProfile()
-        # Top bar
-        nav = QWidget()
-        nav_layout = QHBoxLayout(nav)
-        self.back_btn = QPushButton("◀"); self.forward_btn = QPushButton("▶")
-        self.reload_btn = QPushButton("⟳"); self.address = QLineEdit()
-        self.go_btn = QPushButton("Go"); self.bookmark_btn = QPushButton("★")
-        self.dev_btn = QPushButton("DevTools"); self.new_tab_btn = QPushButton("+")
-        nav_layout.addWidget(self.back_btn); nav_layout.addWidget(self.forward_btn)
-        nav_layout.addWidget(self.reload_btn); nav_layout.addWidget(self.address)
-        nav_layout.addWidget(self.go_btn); nav_layout.addWidget(self.bookmark_btn)
-        nav_layout.addWidget(self.dev_btn); nav_layout.addWidget(self.new_tab_btn)
+        
+        # Splitter: sidebar + main
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.sidebar = QListWidget()
+        self.sidebar.setFixedWidth(250)
+        self.sidebar.addItem("Bookmarks"); self.sidebar.addItem("History")
+        self.splitter.addWidget(self.sidebar)
+
         # Tabs
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.on_tab_change)
-        # Layout
-        central = QWidget(); layout = QVBoxLayout(central)
-        layout.addWidget(nav); layout.addWidget(self.tabs)
-        self.setCentralWidget(central)
-        # Events
+        self.splitter.addWidget(self.tabs)
+        self.setCentralWidget(self.splitter)
+
+        # Top bar
+        nav = QWidget(); nav_layout = QHBoxLayout(nav)
+        self.back_btn = QPushButton("◀"); self.forward_btn = QPushButton("▶")
+        self.reload_btn = QPushButton("⟳"); self.address = QLineEdit()
+        self.go_btn = QPushButton("Go"); self.bookmark_btn = QPushButton("★")
+        self.dev_btn = QPushButton("DevTools"); self.new_tab_btn = QPushButton("+")
+        for w in [self.back_btn,self.forward_btn,self.reload_btn,self.address,self.go_btn,
+                  self.bookmark_btn,self.dev_btn,self.new_tab_btn]: nav_layout.addWidget(w)
+
+        # layout
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(nav)
+        main_layout.addWidget(self.splitter)
+        container = QWidget(); container.setLayout(main_layout)
+        self.setCentralWidget(container)
+
+        # connect buttons
         self.back_btn.clicked.connect(lambda: self._current_tab().view.back())
         self.forward_btn.clicked.connect(lambda: self._current_tab().view.forward())
         self.reload_btn.clicked.connect(lambda: self._current_tab().view.reload())
@@ -199,6 +209,7 @@ class BrowserMain(QMainWindow):
         self.bookmark_btn.clicked.connect(self.add_bookmark)
         self.dev_btn.clicked.connect(self.open_devtools)
         self.new_tab_btn.clicked.connect(lambda: self.create_tab("https://example.com"))
+
         # initial tab
         self.create_tab("https://example.com")
 
@@ -211,6 +222,7 @@ class BrowserMain(QMainWindow):
         tab.request_permission.connect(self.handle_permission)
         tab.download_started.connect(lambda info: print(f"Download: {info}"))
         tab.url_changed.connect(lambda u: self._add_history(u))
+        tab.icon_changed.connect(lambda icon, i=idx: self.tabs.setTabIcon(i, icon))
         return tab
 
     def _current_tab(self): return self.tabs.currentWidget()
