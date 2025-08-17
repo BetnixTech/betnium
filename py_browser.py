@@ -1,27 +1,23 @@
 """
 advanced_py_browser.py
-A full-featured Chrome-style browser using PySide6
-Features:
+Full-featured Chrome-style Python browser with:
  - Persistent bookmarks & history
  - Tabs with proper cleanup
  - Custom HTML-like modals
  - Permission pop-ups with Remember option
- - Tab favicons and live tab thumbnails
+ - Tab favicons & live thumbnails
  - Animated tab previews on hover
- - Bookmarks/history sidebar panel
+ - Bookmarks/history sidebar
  - Downloads handling
  - DevTools support
-Requirements:
- pip install PySide6
-Run:
- python advanced_py_browser.py
+Requirements: pip install PySide6
 """
-import sys, os, json, functools
-from PySide6.QtCore import Qt, QUrl, QTimer, QObject, Signal, QSize, QEvent
+import sys, os, json
+from PySide6.QtCore import Qt, QUrl, QTimer, QObject, Signal, QEvent, QPropertyAnimation
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QTabWidget, QLineEdit, QPushButton, QLabel, QListWidget, QFileDialog, QSplitter)
 from PySide6.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineDownloadItem
-from PySide6.QtGui import QIcon, QPixmap, QPainter
+from PySide6.QtGui import QIcon, QPixmap
 
 # --- Persistence files ---
 BOOKMARK_FILE = "bookmarks.json"
@@ -109,6 +105,7 @@ class BrowserTab(QWidget):
     def __init__(self, profile=None, url="https://example.com"):
         super().__init__()
         self.view = QWebEngineView()
+        self.thumbnail = None
         if profile:
             page = QWebEnginePage(profile,self.view)
             self.view.setPage(page)
@@ -121,6 +118,9 @@ class BrowserTab(QWidget):
         self.view.titleChanged.connect(self.title_changed.emit)
         self.view.urlChanged.connect(lambda q:self.url_changed.emit(q.toString()))
         self.view.iconChanged.connect(lambda icon:self.icon_changed.emit(icon))
+        self.view.urlChanged.connect(lambda _: self.update_thumbnail())
+        self.view.titleChanged.connect(lambda _: self.update_thumbnail())
+
         # permissions
         if hasattr(self.view.page(), "featurePermissionRequested"):
             self.view.page().featurePermissionRequested.connect(self._on_feature_request)
@@ -161,6 +161,9 @@ class BrowserTab(QWidget):
         item.setPath(path); item.accept()
         self.download_started.emit({"url":item.url().toString(),"path":path})
 
+    def update_thumbnail(self):
+        self.thumbnail = self.view.grab()
+
 # --- Main Window ---
 class BrowserMain(QMainWindow):
     def __init__(self):
@@ -168,6 +171,7 @@ class BrowserMain(QMainWindow):
         self.setWindowTitle("AdvancedPyBrowser")
         self.resize(1400,900)
         self.profile = QWebEngineProfile.defaultProfile()
+        self._preview_widget = None
         
         # Splitter: sidebar + main
         self.splitter = QSplitter(Qt.Horizontal)
@@ -209,6 +213,9 @@ class BrowserMain(QMainWindow):
         self.bookmark_btn.clicked.connect(self.add_bookmark)
         self.dev_btn.clicked.connect(self.open_devtools)
         self.new_tab_btn.clicked.connect(lambda: self.create_tab("https://example.com"))
+
+        # setup hover previews
+        self.setup_tab_hover()
 
         # initial tab
         self.create_tab("https://example.com")
@@ -277,6 +284,39 @@ class BrowserMain(QMainWindow):
     def open_devtools(self):
         self._current_tab().view.page().setInspectedPage(self._current_tab().view.page())
         self._current_tab().view.page().showDevTools()
+
+    # --- Tab Hover Previews ---
+    def setup_tab_hover(self):
+        tab_bar = self.tabs.tabBar()
+        tab_bar.setMouseTracking(True)
+        tab_bar.installEventFilter(self)
+
+    def eventFilter(self, source, event):
+        if source==self.tabs.tabBar():
+            if event.type()==QEvent.MouseMove:
+                index = source.tabAt(event.pos())
+                if index!=-1:
+                    tab_widget = self.tabs.widget(index)
+                    if hasattr(tab_widget,"thumbnail") and tab_widget.thumbnail:
+                        self.show_tab_preview(tab_widget.thumbnail, source.mapToGlobal(event.pos()))
+            elif event.type()==QEvent.Leave:
+                if self._preview_widget:
+                    self._preview_widget.close(); self._preview_widget=None
+        return super().eventFilter(source,event)
+
+    def show_tab_preview(self,pixmap,pos):
+        if hasattr(self,"_preview_widget") and self._preview_widget:
+            self._preview_widget.close()
+        preview = QLabel(self)
+        preview.setPixmap(pixmap.scaled(300,200,Qt.KeepAspectRatio,Qt.SmoothTransformation))
+        preview.setWindowFlags(Qt.ToolTip)
+        preview.move(pos.x()+10,pos.y()+20)
+        preview.setStyleSheet("border:2px solid #555;")
+        preview.show()
+        anim = QPropertyAnimation(preview, b"windowOpacity")
+        anim.setDuration(200); anim.setStartValue(0); anim.setEndValue(1)
+        anim.start()
+        self._preview_widget = preview
 
 # --- Run ---
 if __name__=="__main__":
